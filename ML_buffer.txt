@@ -1,0 +1,1184 @@
+Q1) How does the utilization of genetic algorithm contribute to the iterative
+reconstruction of images, and what parameters or factors play a crucial role in
+achieving accurate and efficient image reconstruction outcomes.
+Code:
+from deap import base, creator, tools, algorithms
+from random import randint, random, gauss
+from PIL import Image, ImageDraw
+from functools import partial
+from math import sqrt
+import numpy
+PIC = Image.open('ga.jpg')
+SIZE = 100 #size of image
+NUMBER_OF_TRIANGLES = 50
+POPULATION = 40 #The size of the population of triangle configurations.
+NGEN = 50 #no.of generations
+POLY = 3 #no.of vertices in each triangle
+display(PIC)
+def gen_one_triangle():
+ return (tuple([(randint(0, SIZE), randint(0, SIZE)) for i in range(POLY)]),
+ randint(0,255), randint(0,255), randint(0,255), randint(0,30))
+ #0, 0, 0, 0)
+def triangles_to_image(triangles):
+ im = Image.new('RGB', (SIZE, SIZE), (255, 255, 255))
+ for tri in triangles:
+ mask = Image.new('RGBA', (SIZE, SIZE))
+ draw = ImageDraw.Draw(mask)
+ draw.polygon(tri[0], fill=tri[1:])
+ im.paste(mask, mask=mask)
+ del mask, draw
+ return im
+def evaluate(im1, t2):
+ im2 = triangles_to_image(t2)
+ pix1, pix2 = im1.load(), im2.load()
+ ans = 0
+ for i in range(SIZE):
+ for j in range(SIZE):
+ a1, a2, a3 = pix1[i, j]
+ b1, b2, b3 = pix2[i, j]
+ ans += (a1 - b1) ** 2 + (a2 - b2) ** 2 + (a3 - b3) ** 2
+ return 1 - (1. * sqrt(ans) / sqrt(SIZE * SIZE * 3 * 255 * 255)),
+def mutate(triangles):
+ e0 = evaluate(PIC, triangles)
+ for i in range(10):
+ tid = randint(0, NUMBER_OF_TRIANGLES - 1)
+ oldt = triangles[tid]
+ t = list(oldt)
+ p = randint(0, 2 * POLY + 4 - 1)
+ if p < 2 * POLY:
+ points = list(t[0])
+ pnt = list(points[p // 2])
+ #pnt[p%2] = max(0, min(SIZE, gauss(pnt[p%2], 10)))
+ pnt[p % 2] = randint(0, SIZE)
+ points[p // 2] = tuple(pnt)
+ t[0] = tuple(points)
+ else:
+ p -= 2 * POLY - 1
+ #t[p] = max(0, min(255, int(gauss(t[p], 20))))
+ t[p] = randint(0, 255)
+ triangles[tid] = tuple(t)
+ if evaluate(PIC, triangles) > e0:
+ break
+ else:
+ triangles[tid] = oldt
+ return triangles,
+creator.create("Fitness", base.Fitness, weights=(1.0,))
+creator.create("Individual", list, fitness=creator.Fitness)
+toolbox = base.Toolbox()
+toolbox.register("attr", gen_one_triangle)
+toolbox.register("individual", tools.initRepeat,
+ creator.Individual, toolbox.attr, NUMBER_OF_TRIANGLES)
+toolbox.register("population", tools.initRepeat,
+ list, toolbox.individual)
+toolbox.register("evaluate", partial(evaluate, PIC))
+toolbox.register("mate", tools.cxTwoPoint)
+toolbox.register("mutate", mutate)
+toolbox.register("select", tools.selTournament, tournsize=3)
+def main():
+ pop = toolbox.population(n=POPULATION)
+ hof = tools.HallOfFame(1)
+ stats = tools.Statistics(lambda ind: ind.fitness.values)
+ stats.register("std", numpy.std)
+ stats.register("max", numpy.max)
+ stats.register("avg", numpy.mean)
+ stats.register("min", numpy.min)
+ try:
+ pop, log = algorithms.eaSimple(
+ pop, toolbox, cxpb=0.5, mutpb=0.1, ngen=NGEN, stats=stats,
+ halloffame=hof, verbose=True)
+ finally:
+ open('result.txt', 'w').write(repr(hof[0]))
+ triangles_to_image(hof[0]).save('result1.bmp')
+if __name__ == '__main__':
+ main()
+output:
+Q2) How is the Traveling Salesman Problem (TSP) tackled by the Ant Colony
+Optimization (ACO) algorithm? Could you elaborate on the particular ACO
+mechanisms that contribute to producing efficient solutions for optimizing 
+routes in the context of TSP.
+Code:
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+def distance(point1, point2):
+ return np.sqrt(np.sum((point1 - point2)**2))
+def ant_colony_optimization(points, n_ants, n_iterations, alpha, beta, 
+evaporation_rate, Q):
+ n_points = len(points)
+ pheromone = np.ones((n_points, n_points))
+ best_path = None
+ best_path_length = np.inf
+ for iteration in range(n_iterations):
+ paths = []
+ path_lengths = []
+ for ant in range(n_ants):
+ visited = [False]*n_points
+ current_point = np.random.randint(n_points)
+ visited[current_point] = True
+ path = [current_point]
+ path_length = 0
+ while False in visited:
+ unvisited = np.where(np.logical_not(visited))[0]
+ probabilities = np.zeros(len(unvisited))
+ for i, unvisited_point in enumerate(unvisited):
+ probabilities[i] = pheromone[current_point, 
+unvisited_point]**alpha / distance(points[current_point], 
+points[unvisited_point])**beta
+ probabilities /= np.sum(probabilities)
+ next_point = np.random.choice(unvisited, p=probabilities)
+ path.append(next_point)
+ path_length += distance(points[current_point], points[next_point])
+ visited[next_point] = True
+ current_point = next_point
+ paths.append(path)
+ path_lengths.append(path_length)
+ if path_length < best_path_length:
+ best_path = path
+ best_path_length = path_length
+ pheromone *= evaporation_rate
+ for path, path_length in zip(paths, path_lengths):
+ for i in range(n_points-1):
+ pheromone[path[i], path[i+1]] += Q/path_length
+ pheromone[path[-1], path[0]] += Q/path_length
+ fig = plt.figure(figsize=(8, 6))
+ ax = fig.add_subplot(111, projection='3d')
+ ax.scatter(points[:,0], points[:,1], points[:,2], c='r', marker='o')
+ for i in range(n_points-1):
+ ax.plot([points[best_path[i],0], points[best_path[i+1],0]],
+ [points[best_path[i],1], points[best_path[i+1],1]],
+ [points[best_path[i],2], points[best_path[i+1],2]],
+ c='g', linestyle='-', linewidth=2, marker='o')
+ ax.plot([points[best_path[0],0], points[best_path[-1],0]],
+ [points[best_path[0],1], points[best_path[-1],1]],
+ [points[best_path[0],2], points[best_path[-1],2]],
+ c='g', linestyle='-', linewidth=2, marker='o')
+ ax.set_xlabel('X Label')
+ ax.set_ylabel('Y Label')
+ ax.set_zlabel('Z Label')
+ plt.show()
+# Example usage:
+points = np.random.rand(10, 3) # Generate 10 random 3D points
+ant_colony_optimization(points, n_ants=10, n_iterations=100, alpha=1, 
+beta=1, evaporation_rate=0.5, Q=1)
+Output:
+Q3) How does the Particle Swarm Optimization (PSO) algorithm offer a solution 
+to the clustering problem? Could you elucidate the core mechanisms of PSO 
+that contribute to the discovery of optimal or near-optimal cluster 
+configurations in various clustering scenarios.
+Code:
+import numpy as np
+from sklearn.datasets import make_blobs
+from sklearn.cluster import KMeans
+#creating 300 data points distributed among 4 clusters
+data, _ = make_blobs(n_samples=300, centers=4, random_state=42)
+num_particles = 30
+num_iterations = 100
+num_clusters = 4
+inertia_weight = 0.5
+cognitive_coefficient = 1.5
+social_coefficient = 1.5
+# Initialize particles randomly within data space(cluster centers)
+particles = np.random.rand(num_particles, num_clusters, data.shape[1]) * 
+(data.max() - data.min()) + data.min()
+#Particle velocities are initially set to zero.
+velocities = np.zeros_like(particles)
+def find_best_particle(particles, data):
+ #distance between data points and particles
+ fitness = np.array([np.sum((data - centers[:, np.newaxis]) ** 2) for centers in 
+particles])
+ best_particle_index = np.argmin(fitness)
+ return particles[best_particle_index], fitness[best_particle_index]
+#finds best center(lowest squared sum)
+global_best_position, global_best_fitness = find_best_particle(particles, data)
+for iteration in range(num_iterations):
+ for particle_idx in range(num_particles):
+ particle = particles[particle_idx]
+ velocities[particle_idx] = (inertia_weight * velocities[particle_idx] +
+ cognitive_coefficient * np.random.random() * (particle -
+particle) +
+ social_coefficient * np.random.random() * 
+(global_best_position - particle))
+ particle += velocities[particle_idx]
+ kmeans = KMeans(n_clusters=num_clusters, init=particle, n_init=1)
+ kmeans.fit(data)
+ particles[particle_idx] = kmeans.cluster_centers_
+ # Update global best
+ current_best_position, current_best_fitness = find_best_particle(particles, 
+data)
+ if current_best_fitness < global_best_fitness:
+ global_best_position = current_best_position
+ global_best_fitness = current_best_fitness
+print("Final cluster centers:\n", global_best_position)
+Output
+
+##moo
+import numpy as np
+import random 
+import math
+import matplotlib.pyplot as plt
+def selection(parents):
+    a,b = random.sample(range(len(parents)),2)
+    return parents[a], parents[b]
+def crossover(p1,p2):
+    if len(p1)!=len(p2):
+        return False
+    else:
+        c1 = [None for i in p1]
+        c2 = [None for i in p2]
+        a,b = sorted(random.sample(range(len(parents)+1),2))
+        unfilled_indices = []
+        for i in range(a):
+            unfilled_indices.append(i)
+        for i in range(b,len(p1)):
+            unfilled_indices.append(i)
+        for i in range(a,b):
+            c1[i] = p1[i]
+            c2[i] = p2[i]
+        ind = 0
+        for i in p2:
+            if i not in c1:
+                c1[unfilled_indices[ind]] = i
+                ind += 1
+        ind = 0
+        for i in p1:
+            if i not in c2:
+                c2[unfilled_indices[ind]] = i
+                ind += 1
+        return (c1,c2)
+    
+def mutation(chro):
+    a,b = sorted(random.sample(range(len(parents)),2))
+    chro[a], chro[b] = chro[b], chro[a]
+    return chro
+def generateOffsprings(parents):
+    offsprings = []
+    while(len(offsprings)!=len(parents)):
+        p1,p2 = selection(parents)
+        c1,c2 = crossover(p1,p2)
+        c1 = mutation(c1)
+        c2 = mutation(c2)
+        offsprings.append(c1)
+        offsprings.append(c2)
+    return offsprings
+population_size = 4
+num_cities = 6
+num_generations = 50
+distance_matrix = [
+    [0, 81, 72, 55, 81, 3],
+    [81, 0, 3, 44, 9, 40],
+    [72, 3, 0, 87, 72, 21],
+    [55, 44, 87, 0, 67, 25],
+    [81, 9, 77, 67, 0, 93],
+    [3, 40, 21, 25, 93, 0]
+]
+cost_matrix = [
+    [0, 82, 14, 14, 43, 47],
+    [82, 0, 61, 76, 29, 47],
+    [14, 61, 0, 29, 31, 51],
+    [14, 76, 29, 0, 78, 67],
+    [43, 29, 31, 78, 0, 28],
+    [47, 47, 51, 67, 28, 0]
+]
+def generatePopulation(population_size, num_cities):
+    pop = []
+    for j in range(population_size):
+        tour = [j for j in range(num_cities)]
+        random.shuffle(tour)
+        pop.append(tour)
+    return pop
+def Evaluate(tour, matrix):
+    val = 0
+    for i in range(len(tour)-1):
+        val += matrix[tour[i]][tour[i+1]]
+    val+=matrix[tour[-1]][tour[0]]
+    return val
+
+def checkDomination(p, q):
+    p_cost = Evaluate(p, cost_matrix)
+    p_dist = Evaluate(p, distance_matrix)
+    q_cost = Evaluate(q, cost_matrix)
+    q_dist = Evaluate(q, distance_matrix)
+    
+    
+    if((p_dist <= q_dist and p_cost <= q_cost) and (p_dist < q_dist or p_cost < q_cost)):
+        return 1
+    elif((p_dist >= q_dist and p_cost >= q_cost) and (p_dist > q_dist or p_cost > q_cost)):
+        return -1
+    else:
+        return 0
+
+def FastNonDominatedSort(population):
+    population_data = {}
+    fronts = []
+    for p in range(len(population)):
+        sols_dom_by_p = []
+        dom_count_p = 0
+        for q in range(len(population)):
+            dom_p_q = checkDomination(population[p],population[q])
+            if dom_p_q == 1:
+                sols_dom_by_p.append(q)
+            elif dom_p_q == -1:
+                dom_count_p += 1
+        population_data[p] = {
+            "dominates" : sols_dom_by_p,
+            "dominationCount": dom_count_p
+        }
+    
+    while len(population_data):
+        new_front = []
+        for i in population_data:
+            if population_data[i]["dominationCount"] == 0:
+                new_front.append(i)
+        for i in new_front:
+            for j in population_data[i]["dominates"]:
+                population_data[j]["dominationCount"] -= 1
+            del population_data[i]
+        fronts.append(new_front)
+    return fronts
+def crowdingDistance(front, population):
+    distance = [0.0]*len(front)
+    fitness_cost_values = []
+    fitness_dist_values = []
+    for i in front:
+        fitness_cost_values.append(Evaluate(population[i], cost_matrix))
+        fitness_dist_values.append(Evaluate(population[i], distance_matrix))
+    cost_indices = sorted(
+        range(len(fitness_cost_values)),
+        key=lambda k: fitness_cost_values[k],
+        reverse=True
+    )
+    dist_indices = sorted(
+        range(len(fitness_dist_values)),
+        key=lambda k: fitness_dist_values[k],
+        reverse=True
+    )
+    min_max_diff_cost = max(fitness_cost_values) - min(fitness_cost_values)
+    min_max_diff_dist = max(fitness_dist_values) - min(fitness_dist_values)
+    distance[cost_indices[0]] = math.inf
+    distance[cost_indices[-1]] = math.inf
+    i = 1
+    while i < (len(front)-1):
+        distance[cost_indices[i]] += (fitness_cost_values[cost_indices[i+1]]-fitness_cost_values[cost_indices[i-1]])/min_max_diff_cost
+        i+=1
+    distance[dist_indices[0]] = math.inf
+    distance[dist_indices[-1]] = math.inf
+    i = 1
+    while i < (len(front)-1):
+        distance[dist_indices[i]] += (fitness_dist_values[dist_indices[i+1]]-fitness_dist_values[dist_indices[i-1]])/min_max_diff_dist
+        i+=1
+    return distance
+parents = generatePopulation(population_size, num_cities)
+for i in range(num_generations):
+    
+    children = generateOffsprings(parents)
+    population = parents[:]
+    population.extend(children)
+    
+    fronts = FastNonDominatedSort(population)
+    for i in fronts:
+        print(i)
+    print("---")
+    
+    new_parents = []
+    for front in fronts:
+        if(len(front)+len(new_parents)<=population_size):
+            for i in front:
+                new_parents.append(population[i])
+        else:
+            distance = crowdingDistance(front, population)
+            indices = sorted(
+                range(len(distance)),
+                key = lambda k : distance[k],
+                reverse = True
+            )
+            i = 0
+            while len(new_parents)!=population_size:
+                new_parents.append(population[indices[i]])
+                i+=1
+    parents = new_parents[:]
+        
+    
+    
+dist_plot = []
+cost_plot = []
+for i in parents:
+    dist_plot.append(Evaluate(i, distance_matrix))
+    cost_plot.append(Evaluate(i, cost_matrix))
+print(dist_plot)
+print(cost_plot)
+plt.scatter(dist_plot, cost_plot)
+plt.show()
+
+#persecptron
+import numpy as np
+def generate(inputs,n,arr,i):
+ if i==n:
+ inputs.append(arr.copy()) # we have to store the copy because arr gets updated for next recursion resulting change in t
+ return
+ arr[i]=0
+ generate(inputs,n,arr,i+1)
+ arr[i]=1
+ generate(inputs,n,arr,i+1)
+ 
+def generateinputs(n):
+ arr = [None]*n
+ inputs = []
+ generate(inputs,n,arr,0)
+ return inputs
+n = int(input("Enter number of gates"))
+inputs = generateinputs(n)
+inputs
+inputs = np.array(inputs)
+inputs
+def perceptron_learning(inputs, target_outputs, weights, bias, learning_rate, epochs):
+ for epoch in range(epochs):
+ total_error = 0
+ for i in range(len(inputs)):
+ input_data = inputs[i]
+ target_output = target_outputs[i]
+ 
+ weighted_sum = np.dot(weights,input_data) + bias
+ 
+ if weighted_sum > 0 :
+ predicted_output = 1
+ else:
+ predicted_output = 0
+ 
+ error = target_output - predicted_output
+ 
+ weights += learning_rate*error*input_data
+ bias += learning_rate*error
+ 
+ total_error += abs(error)
+ 
+ accuracy = (1 - (total_error/len(inputs)))*100
+ print("Accuracy:", accuracy, "%")
+ 
+ if total_error == 0:
+ print("Training converged after {} epochs".format(epoch+1))
+ break
+ return weights, bias
+initial_weights = np.random.rand(n)
+initial_bias = np.random.rand()
+target_and_outputs = []
+for input_data in inputs:
+ target_and_outputs.append(np.prod(input_data))
+learning_rate = 0.1
+epochs = 100
+final_weights, final_bias = perceptron_learning(inputs, target_and_outputs, initial_weights, initial_bias, learning_rate, epochs
+print("Trained weights:", final_weights)
+print("Trained bias:", final_bias
+
+initial_weights = np.random.rand(n)
+initial_bias = np.random.rand()
+target_or_outputs = []
+for input_data in inputs:
+ flag = 0
+ for inp in input_data:
+ if inp == 1:
+ flag = 1
+ break
+ target_or_outputs.append(flag)
+ 
+learning_rate = 0.1
+epochs = 100
+final_weights, final_bias = perceptron_learning(inputs, target_or_outputs, initial_weights, initial_bias, learning_rate, epochs
+print("Trained weights:", final_weights)
+print("Trained bias:", final_bias)
+
+ initial_weights = np.random.rand(n)
+initial_bias = np.random.rand()
+target_nand_outputs = []
+for input_data in inputs:
+ flag = 0
+ for inp in input_data:
+ if inp == 0:
+ flag = 1
+ break
+ target_nand_outputs.append(flag)
+learning_rate = 0.1
+epochs = 100
+final_weights, final_bias = perceptron_learning(inputs, target_nand_outputs, initial_weights, initial_bias, learning_rate, epoch
+print("Trained weights:", final_weight
+
+x = inputs
+y = []
+for input_data in inputs:
+ y.append(np.sum(input_data)%2)
+y = np.array(y)
+def sigmoid(x):
+ return 1/(1+np.exp(-x))
+def sigmoid_derivative(x):
+ return x*(1-x)
+
+input_neurons = n
+hidden_neurons = n
+output_neurons = 1
+np.random.seed(0)
+hidden_weights = np.random.rand(input_neurons, hidden_neurons)
+hidden_bias = np.random.rand(1, hidden_neurons)
+output_weights = np.random.rand(hidden_neurons, output_neurons)
+output_bias = np.random.rand(1, output_neurons)
+learning_rate = 0.1
+epochs = 10000
+for epoch in range(epochs):
+ #forward propagation
+ hidden_layer_input = np.dot(x, hidden_weights) + hidden_bias
+ hidden_layer_output = sigmoid(hidden_layer_input)
+ output_layer_input = np.dot(hidden_layer_output, output_weights) + output_bias
+ output_layer_output = sigmoid(output_layer_input)
+ #error calc
+ error = y.reshape(-1,1) - output_layer_output
+ 
+ # Backward propagation
+ d_output = error * sigmoid_derivative(output_layer_output)
+ error_hidden_layer = np.dot(d_output, output_weights.T)
+ d_hidden_layer = error_hidden_layer * sigmoid_derivative(hidden_layer_output)
+ # update weights and biases
+ output_weights += np.dot(hidden_layer_output.T, d_output)*learning_rate
+ output_bias += np.sum(d_output, axis=0, keepdims=True)*learning_rate
+ hidden_weights += np.dot(x.T, d_hidden_layer)*learning_rate
+ hidden_bias += np.sum(d_hidden_layer, axis = 0, keepdims = True)*learning_rate
+
+#Test
+hidden_layer_input = np.dot(x, hidden_weights)+hidden_bias
+hidden_layer_output = sigmoid(hidden_layer_input)
+output_layer_input = np.dot(hidden_layer_output, output_weights)+output_bias
+output_layer_output = sigmoid(output_layer_input)
+
+print("weights:", hidden_weights, output_weights)
+print("bias:", hidden_bias, output_bias)
+count= 0
+for i in range(len(y)):
+ if output_layer_output[i] > 0.5: 
+ count += (y[i]==1)
+ else:
+ count += (y[i]==0)
+count = (count*100)/len(y)
+print("Accuracy:",count,"%"
+
+
+
+#classify minist with nn
+
+import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow import keras
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from sklearn.model_selection import train_test_split
+#1. Load data (Available at keras.datasets)
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+print(x_train.shape)
+print(y_train.shape)
+print(x_test.shape)
+print(y_test.shape)
+# 2. Preprocess data
+x_train = x_train.reshape(-1, 28 * 28).astype('float32') / 255.0
+x_test = x_test.reshape(-1, 28 * 28).astype('float32') / 255.0
+
+# encoding for the labels
+y_train = keras.utils.to_categorical(y_train, 10)
+y_test = keras.utils.to_categorical(y_test, 10)
+
+#train-test split
+x_train, x_test2, y_train, y_test2 = train_test_split(x_train, y_train, test_size=0.2, random_state=42)
+print(x_train.shape)
+print(y_train.shape)
+print(x_test2.shape)
+print(y_test2.shape)
+# 3. Define model
+def create_model(hidden_layers=1, neurons_per_layer=128):
+    model = Sequential()
+    model.add(Dense(neurons_per_layer, input_dim=784, activation='relu'))
+    
+    for _ in range(hidden_layers - 1):
+        model.add(Dense(neurons_per_layer, activation='relu'))
+    
+    model.add(Dense(10, activation='softmax'))
+    model.compile(loss='categorical_crossentropy', optimizer='sgd', metrics=['accuracy'])
+    return model
+
+# 4. Evaluate model
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.title('Model Loss')
+plt.show()
+#6. Use More layers (i.e. increase depth of Network) and Evaluate model again.
+for itr in range(2,32,6):
+    print("Number of Hidden Layers: ", itr)
+    model = create_model(hidden_layers=itr)
+    history = model.fit(x_train, y_train, validation_data=(x_test2, y_test2), epochs=5, batch_size=64)
+    
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.title(f'Model Loss (Hidden Layers: {itr})')
+    plt.show()
+
+#7. Use more Neuron (i.e. increase width of Network) in each layer and Evaluate model again.
+neurons_list = [64, 128, 256]
+for neurons_per_layer in neurons_list:
+    model = create_model(neurons_per_layer=neurons_per_layer)
+    history = model.fit(x_train, y_train, validation_data=(x_test2, y_test2), epochs=10, batch_size=64)
+    
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.title(f'Model Loss (Neurons per Layer: {neurons_per_layer})')
+
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['accuracy'], label='Training Accuracy')
+    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.title(f'Model Accuracy (Neurons per Layer: {neurons_per_layer})')
+    plt.show()
+
+
+#dimensionality reduction
+
+import numpy as np
+
+def PCA(x,num_components):
+    
+    x_mean = x - np.mean(x,axis=0)
+    
+    cov = np.cov(x_mean, rowvar=False)
+    
+    eighval, eighvect = np.linalg.eigh(cov)
+    
+    sorted_indices = np.argsort(eighval)[::-1]
+    sorted_eighvect = eighvect[:, sorted_indices]
+    
+    eighvect_subset = sorted_eighvect[:, :num_components]
+    
+    x_reduced = np.dot(x_mean, eighvect_subset)
+    
+    return x_reduced, sorted_eighvect, np.mean(x,axis=0)
+    
+def reconstruct_image(x_reduced, eighvect, num_components, mean):
+    return np.dot(x_reduced, eighvect[:,:num_components].T) + mean
+
+
+
+from PIL import Image
+import matplotlib.pyplot as plt
+
+image = Image.open('img.png').convert('L')
+image_data = np.array(image)
+print(image_data)
+print(image_data.shape)
+num_components = 20
+reduced_image, eighvect, mean = PCA(image_data,num_components)
+print(reduced_image)
+print(reduced_image.shape)
+reconstructed_matrix = reconstruct_image(reduced_image, eighvect, num_components, mean)
+reconstruct_image = reconstructed_matrix.reshape(image_data.shape)
+print(reconstruct_image.shape)
+plt.figure(figsize=(10,5))
+
+plt.subplot(1,2,1)
+plt.imshow(image_data, cmap='gray')
+plt.title('Original Image')
+
+plt.subplot(1,2,2)
+plt.imshow(reconstruct_image, cmap='gray')
+plt.title('Reconstructed image')
+
+plt.show()
+image_data = np.genfromtxt('HaLTSubjectA.csv', delimiter=',')
+num_components = 50
+print(image_data.shape)
+reduced_image, eighenvect, mean = PCA(image_data, num_components)
+print(reduced_image.shape)
+plt.figure(figsize=(14,6))
+
+plt.subplot(1,2,1)
+for channel in image_data:
+    plt.plot(channel, alpha=0.5)
+plt.xlabel('Time points')
+plt.ylabel('Amplitude')
+plt.title('Original EEG Data')
+
+plt.subplot(1,2,2)
+for channel in reduced_image:
+    plt.plot(channel,alpha=0.5)
+plt.xlabel('Time points')
+plt.ylabel('Projected Amplitude')
+plt.title('reduced EEG Data')
+
+plt.tight_layout()
+plt.show()
+
+
+#auto encoders
+
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+print(x_train.shape)
+print(y_train.shape)
+print(x_test.shape)
+print(y_test.shape)
+# Preprocess data
+x_train = x_train.astype('float32') / 255.0
+x_test = x_test.astype('float32') / 255.0
+
+x_train = x_train.reshape(len(x_train),28,28,1)
+x_test = x_test.reshape(len(x_test),28,28,1)
+noise_factor = 0.5
+x_train_noisy = x_train + noise_factor* np.random.normal(loc=0.0, scale=1.0, size=x_train.shape)
+x_test_noisy = x_test + noise_factor*np.random.normal(loc = 0.0, scale=1.0, size = x_test.shape)
+
+x_train_noisy = np.clip(x_train_noisy,0.,1.)
+x_test_noisy = np.clip(x_test_noisy,0.,1.)
+input_img = Input(shape=(28,28,1))
+
+x = Conv2D(32,(3,3),activation='relu',padding='same')(input_img)
+x = MaxPooling2D((2,2),padding='same')(x)
+x = Conv2D(64,(3,3),activation='relu',padding='same')(x)
+x = MaxPooling2D((2,2),padding='same')(x)
+
+x = Conv2D(64,(3,3),activation='relu',padding='same')(x)
+x = UpSampling2D((2,2))(x)
+x = Conv2D(32,(3,3),activation='relu',padding='same')(x)
+x = UpSampling2D((2,2))(x)
+decoded = Conv2D(1,(3,3),activation='sigmoid',padding='same')(x)
+
+autoencoder = Model(input_img, decoded)
+autoencoder.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy')
+autoencoder.fit(x_train_noisy, x_train, epochs=5, batch_size=128, validation_data=(x_test_noisy, x_test))
+reconstructed_imgs = autoencoder.predict(x_test_noisy)
+print(reconstructed_imgs)
+from sklearn.metrics import mean_squared_error
+x_test_flat = x_test.reshape(len(x_test),-1)
+reconstructed_imgs_flat = reconstructed_imgs.reshape(len(reconstructed_imgs),-1)
+
+rmse = np.sqrt(mean_squared_error(x_test_flat, reconstructed_imgs_flat))
+print("RMSE -",rmse)
+
+snr = np.mean(np.square(x_test)/np.square(x_test-reconstructed_imgs))
+print("SNR -",snr)
+from skimage.metrics import structural_similarity as ssim
+from skimage.metrics import peak_signal_noise_ratio as psnr
+
+psnr_val = np.mean([psnr(x_test[i].reshape(28,28),reconstructed_imgs[i].reshape(28,28)) for i in range(len(x_test))])
+print("PSNR -", psnr_val)
+
+ssim_val = np.mean([ssim(x_test[i].reshape(28,28),reconstructed_imgs[i].reshape(28,28),data_range=1.0) for i in range(len(x_test))])
+print("SSIM -",ssim_val)
+import matplotlib.pyplot as plt
+plt.figure(figsize=(20,8))
+n = 10
+for i in range(n):
+    ax = plt.subplot(3,n,i+1)
+    plt.imshow(x_test[i].reshape(28,28))
+    plt.gray()
+    plt.title("Original")
+    
+    ax = plt.subplot(3,n,n+i+1)
+    plt.imshow(x_test_noisy[i].reshape(28,28))
+    plt.gray()
+    plt.title("Noisy")
+    
+    ax = plt.subplot(3,n,2*n + i+1)
+    plt.imshow(reconstructed_imgs[i].reshape(28,28))
+    plt.gray()
+    plt.title("reconstructed")
+plt.show()
+
+
+#NLP
+import numpy as np
+import nltk
+nltk.download('all')
+import os
+print( os.listdir( nltk.data.find("corpora") ) )
+from nltk.tokenize import word_tokenize
+from nltk.probability import FreqDist
+from nltk.sentiment import SentimentIntensityAnalyzer
+#tokenization
+from nltk.corpus import movie_reviews
+corpus=movie_reviews
+
+def tokenize(text):
+    return word_tokenize(text)
+all_fds=corpus.fileids()
+print("total files:",len(all_fds))
+file_id=corpus.fileids()[0]
+sample_text=corpus.raw(file_id)
+tokens=tokenize(sample_text)
+print("TEXT TAKEN: \n",sample_text)
+print(np.shape(tokens))
+print("TOKENS CREATED: \n",tokens)
+#chunking
+def chunking(tokens):
+    grammer="NP: {<DT>?<JJ>*<NN>}"
+        #noun phrase optional determiner, adjective before noun(0,..), single noun
+    cp=nltk.RegexpParser(grammer)
+    tree=cp.parse(tokens)
+    return tree
+#tagging the tokens
+tagged_tokens=nltk.pos_tag(tokens)
+chunk_tree=chunking(tagged_tokens)
+print(np.shape(chunk_tree))
+print(chunk_tree)
+#stemming
+def stemming(tokens):
+    porter=nltk.PorterStemmer()
+    return [porter.stem(token) for token in tokens]
+stemmed_tokens=stemming(tokens)
+print(np.shape(stemmed_tokens))
+print(stemmed_tokens)
+#analysing
+def analyze(sample_text):
+    analyzer=SentimentIntensityAnalyzer()
+    sentiment_scores=analyzer.polarity_scores(sample_text)
+    return sentiment_scores
+sentiment_scores=analyze(sample_text)
+print("Pos: ",sentiment_scores['pos']," Neg: ",sentiment_scores['neg'])
+#number of positve and negative words
+from nltk.corpus import opinion_lexicon
+def counter(tokens):
+    pos_count=0
+    neg_count=0
+    for word in tokens:
+        #print(word)
+        if word in opinion_lexicon.positive():
+            print("positve: ",word)
+            pos_count+=1
+        elif word in opinion_lexicon.negative():
+            print("negative: ",word)
+            neg_count+=1
+    return pos_count,neg_count
+
+#getting positve and negative
+print(np.shape(corpus.words()))
+pos_words=set(opinion_lexicon.positive())
+print(np.shape(pos_words))
+#neg_words=set(nltk.corpus.opinion_lexicon.negative())
+pos_count,neg_count=counter(corpus.words())
+print("pos count: ",pos_count," neg count: ",neg_count)
+text_file_path = "wikiQA-test.txt"
+
+with open(text_file_path, "r", encoding="utf-8") as text_file:
+    wikiQA_test = text_file.read()
+
+print(wikiQA_test)
+from collections import Counter
+word_freq=Counter(tokens)
+
+for word, frequency in word_freq.items():
+    print(f"'{word}': {frequency} times")
+import nltk
+from nltk.corpus import movie_reviews
+from nltk.tokenize import word_tokenize
+from nltk.corpus import opinion_lexicon
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.stem import PorterStemmer
+
+nltk.download('punkt')
+nltk.download('movie_reviews')
+nltk.download('opinion_lexicon')
+nltk.download('vader_lexicon')
+
+# Load movie_reviews corpus
+documents = [(list(movie_reviews.words(fileid)), category)
+             for category in movie_reviews.categories()
+             for fileid in movie_reviews.fileids(category)]
+
+# Tokenization and stemming
+def process_text(text):
+    tokens = word_tokenize(text)
+    stems = [PorterStemmer().stem(token) for token in tokens]
+    return stems
+
+# Positive and negative opinion lexicon words
+positive_words = set(opinion_lexicon.positive())
+negative_words = set(opinion_lexicon.negative())
+
+# Analyzing sentiment using NLTK's SentimentIntensityAnalyzer
+sia = SentimentIntensityAnalyzer()
+
+def analyze_sentiment(text):
+    sentiment_score = sia.polarity_scores(text)['compound']
+    return 'positive' if sentiment_score >= 0 else 'negative'
+
+# Tokenization and stemming of all words in the corpus
+all_words = [PorterStemmer().stem(word.lower()) for word in movie_reviews.words()]
+print(np.shape(all_words))
+# Determine the count of positive and negative meaning words
+positive_count = sum(1 for word in all_words if word in positive_words)
+negative_count = sum(1 for word in all_words if word in negative_words)
+
+print(f"Positive words count: {positive_count}")
+print(f"Negative words count: {negative_count}")
+
+# Example of sentiment analysis for a random review
+random_review_text = " ".join(documents[0][0])
+stemmed_random_review = process_text(random_review_text)
+sentiment = analyze_sentiment(random_review_text)
+
+print("\nRandom Review Sentiment:")
+print(f"Original Text: {random_review_text}")
+print(f"Stemmed Text: {' '.join(stemmed_random_review)}")
+print(f"Sentiment: {sentiment}")
+
+#TF-IDF
+# Step 1: Import necessary libraries
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
+import pandas as pd
+
+# Step 2: Sample documents
+documents = [
+    "This is the first document.",
+    "This document is the second document.",
+    "And this is the third one.",
+    "Is this the first document?",
+]
+
+# Step 3: Create a Bag of Words using CountVectorizer
+vectorizer = CountVectorizer()
+bow_matrix = vectorizer.fit_transform(documents)
+
+# Step 4: Print the Bag of Words matrix
+print("Bag of Words matrix:")
+print(bow_matrix.toarray())
+print("Feature names:")
+print(vectorizer.get_feature_names_out())
+
+# Step 5: Create TF-IDF representation using TfidfVectorizer
+tfidf_vectorizer = TfidfVectorizer()
+tfidf_matrix = tfidf_vectorizer.fit_transform(documents)
+
+# Step 6: Print the TF-IDF matrix
+print("\nTF-IDF matrix:")
+print(tfidf_matrix.toarray())
+print("Feature names:")
+print(tfidf_vectorizer.get_feature_names_out())
+
+# Step 7: Convert TF-IDF matrix to DataFrame for better visualization
+tfidf_df = pd.DataFrame(tfidf_matrix.toarray(), columns=tfidf_vectorizer.get_feature_names_out())
+print("\nTF-IDF DataFrame:")
+print(tfidf_df)
+
+# Step 8: Additional information
+print("\nAdditional Information:")
+print("Number of documents:", tfidf_matrix.shape[0])
+print("Number of features:", tfidf_matrix.shape[1])
+
+#WORD2VEC
+# Step 1: Install the gensim library
+# You can install it using: pip install gensim
+
+# Step 2: Import necessary libraries
+from gensim.models import Word2Vec
+from nltk.tokenize import word_tokenize
+import nltk
+nltk.download('punkt')  # Download the punkt tokenizer
+
+# Step 3: Sample sentences
+sentences = [
+    "Word embeddings are a type of word representation that allows words to be represented as vectors in a continuous vector space.",
+    "Word2Vec is a popular word embedding technique used in natural language processing tasks.",
+    "It captures semantic relationships and contextual information to represent words effectively.",
+    "The Bag of Words concept is another approach to represent words but lacks semantic and contextual understanding.",
+]
+
+# Step 4: Tokenize the sentences
+tokenized_sentences = [word_tokenize(sentence.lower()) for sentence in sentences]
+
+# Step 5: Train Word2Vec model
+model = Word2Vec(sentences=tokenized_sentences, vector_size=100, window=5, min_count=1, workers=4)
+
+# Step 6: Demonstrate Word Embeddings
+word_embeddings = model.wv
+
+# Example: Similarity between words
+similarity_score = word_embeddings.similarity('word', 'embedding')
+print(f"Similarity between 'word' and 'embedding': {similarity_score}")
+
+# Example: Most similar words
+similar_words = word_embeddings.most_similar('word', topn=3)
+print(f"Most similar words to 'word': {similar_words}")
+
+# Step 7: Get the vector representation of a word
+vector_representation = word_embeddings['word']
+print(f"Vector representation of 'word': {vector_representation}")
+
+# Step 8: Save and load the Word2Vec model
+model.save("word2vec_model.model")
+loaded_model = Word2Vec.load("word2vec_model.model")
+
+# Step 9: Display the trained Word2Vec model
+print("\nTrained Word2Vec Model:")
+print(loaded_model)
+
+# Step 10: Explore more functionalities as needed
+
+# Note: Make sure you have the necessary NLTK data for tokenization by running nltk.download('punkt')
+
+#reinforcement
+
+#import libraries
+import numpy as np
+#define the shape of the environment (i.e., its states)
+environment_rows = 11
+environment_columns = 11
+
+#Create a 3D numpy array to hold the current Q-values for each state and action pair: Q(s, a)
+#The array contains 11 rows and 11 columns (to match the shape of the environment), as well as a third "action" dimension.
+#The "action" dimension consists of 4 layers that will allow us to keep track of the Q-values for each possible action in
+#each state (see next cell for a description of possible actions).
+#The value of each (state, action) pair is initialized to 0.
+q_values = np.zeros((environment_rows, environment_columns, 4))
+
+#define actions
+#numeric action codes: 0 = up, 1 = right, 2 = down, 3 = left
+actions = ['up', 'right', 'down', 'left']
+#Create a 2D numpy array to hold the rewards for each state.
+#The array contains 11 rows and 11 columns (to match the shape of the environment), and each value is initialized to -100.
+rewards = np.full((environment_rows, environment_columns), -100.)
+rewards[0, 5] = 100. #set the reward for the packaging area (i.e., the goal) to 100
+
+#define aisle locations (i.e., white squares) for rows 1 through 9
+aisles = {} #store locations in a dictionary
+aisles[1] = [i for i in range(1, 10)]
+aisles[2] = [1, 7, 9]
+aisles[3] = [i for i in range(1, 8)]
+aisles[3].append(9)
+aisles[4] = [3, 7]
+aisles[5] = [i for i in range(11)]
+aisles[6] = [5]
+aisles[7] = [i for i in range(1, 10)]
+aisles[8] = [3, 7]
+aisles[9] = [i for i in range(11)]
+
+#set the rewards for all aisle locations (i.e., white squares)
+for row_index in range(1, 10):
+  for column_index in aisles[row_index]:
+    rewards[row_index, column_index] = -1.
+
+#print rewards matrix
+for row in rewards:
+  print(row)
+#define a function that determines if the specified location is a terminal state
+def is_terminal_state(current_row_index, current_column_index):
+  #if the reward for this location is -1, then it is not a terminal state (i.e., it is a 'white square')
+  if rewards[current_row_index, current_column_index] == -1.:
+    return False
+  else:
+    return True
+#define a function that will choose a random, non-terminal starting location
+def get_starting_location():
+  #get a random row and column index
+  current_row_index = np.random.randint(environment_rows)
+  current_column_index = np.random.randint(environment_columns)
+  #continue choosing random row and column indexes until a non-terminal state is identified
+  #(i.e., until the chosen state is a 'white square').
+  while is_terminal_state(current_row_index, current_column_index):
+    current_row_index = np.random.randint(environment_rows)
+    current_column_index = np.random.randint(environment_columns)
+  return current_row_index, current_column_index
+
+#define an epsilon greedy algorithm that will choose which action to take next (i.e., where to move next)
+def get_next_action(current_row_index, current_column_index, epsilon):
+  #if a randomly chosen value between 0 and 1 is less than epsilon,
+  #then choose the most promising value from the Q-table for this state.
+  if np.random.random() < epsilon:
+    return np.argmax(q_values[current_row_index, current_column_index])
+  else: #choose a random action
+    return np.random.randint(4)
+
+#define a function that will get the next location based on the chosen action
+def get_next_location(current_row_index, current_column_index, action_index):
+  new_row_index = current_row_index
+  new_column_index = current_column_index
+  if actions[action_index] == 'up' and current_row_index > 0:
+    new_row_index -= 1
+  elif actions[action_index] == 'right' and current_column_index < environment_columns - 1:
+    new_column_index += 1
+  elif actions[action_index] == 'down' and current_row_index < environment_rows - 1:
+    new_row_index += 1
+  elif actions[action_index] == 'left' and current_column_index > 0:
+    new_column_index -= 1
+  return new_row_index, new_column_index
+#Define a function that will get the shortest path between any location within the warehouse that
+#the robot is allowed to travel and the item packaging location.
+def get_shortest_path(start_row_index, start_column_index):
+  #return immediately if this is an invalid starting location
+  if is_terminal_state(start_row_index, start_column_index):
+    return []
+  else: #if this is a 'legal' starting location
+    current_row_index, current_column_index = start_row_index, start_column_index
+    shortest_path = []
+    shortest_path.append([current_row_index, current_column_index])
+    #continue moving along the path until we reach the goal (i.e., the item packaging location)
+    while not is_terminal_state(current_row_index, current_column_index):
+      #get the best action to take
+      action_index = get_next_action(current_row_index, current_column_index, 1.)
+      #move to the next location on the path, and add the new location to the list
+      current_row_index, current_column_index = get_next_location(current_row_index, current_column_index, action_index)
+      shortest_path.append([current_row_index, current_column_index])
+    return shortest_path
+#define training parameters
+epsilon = 0.9 #the percentage of time when we should take the best action (instead of a random action)
+discount_factor = 0.9 #discount factor for future rewards
+learning_rate = 0.9 #the rate at which the AI agent should learn
+
+#run through 1000 training episodes
+for episode in range(1000):
+  #get the starting location for this episode
+  row_index, column_index = get_starting_location()
+
+  #continue taking actions (i.e., moving) until we reach a terminal state
+  #(i.e., until we reach the item packaging area or crash into an item storage location)
+  while not is_terminal_state(row_index, column_index):
+    #choose which action to take (i.e., where to move next)
+    action_index = get_next_action(row_index, column_index, epsilon)
+
+    #perform the chosen action, and transition to the next state (i.e., move to the next location)
+    old_row_index, old_column_index = row_index, column_index #store the old row and column indexes
+    row_index, column_index = get_next_location(row_index, column_index, action_index)
+
+    #receive the reward for moving to the new state, and calculate the temporal difference
+    reward = rewards[row_index, column_index]
+    old_q_value = q_values[old_row_index, old_column_index, action_index]
+    temporal_difference = reward + (discount_factor * np.max(q_values[row_index, column_index])) - old_q_value
+
+    #update the Q-value for the previous state and action pair
+    new_q_value = old_q_value + (learning_rate * temporal_difference)
+    q_values[old_row_index, old_column_index, action_index] = new_q_value
+
+print('Training complete!')
+#display a few shortest paths
+print(get_shortest_path(3, 9)) #starting at row 3, column 9
+print(get_shortest_path(5, 0)) #starting at row 5, column 0
+print(get_shortest_path(9, 5)) #starting at row 9, column 5
+#display an example of reversed shortest path
+path = get_shortest_path(5, 2) #go to row 5, column 2
+path.reverse()
+print(path)
+print(q_values)
+#print(new_q_value )
